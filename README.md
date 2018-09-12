@@ -1,13 +1,14 @@
 zed_cpu_ros
 ===========
-A simple zed camera driver which only use CPU and only publish left and right raw images and its camera info.
+A simple zed camera driver which only use CPU and only publish left and right raw images, rectified image and its camera info.
+This repo is forked from [willdzeng](https://github.com/willdzeng/zed_cpu_ros.git).
 
 # Usage:
 1. git the packge into your working space
 
     ```
     cd catkin_ws/src
-    git clone https://github.com/transcendrobotics/zed_cpu_ros
+    git clone https://github.com/zhanghanduo/zed_cpu_ros.git
     cd ..
     catkin_make
     ```
@@ -30,7 +31,6 @@ A simple zed camera driver which only use CPU and only publish left and right ra
     update launch file configuration file name in zed_cpu_ros.launch into your SNXXXX.conf
     ```
     roscd zed_cpu_ros/launch
-    gedit zed_cpu_ros.launch
     ```
     change XXXX into the .conf file you have, for example 1010
     ```
@@ -60,22 +60,21 @@ A simple zed camera driver which only use CPU and only publish left and right ra
  _                            | _                                                           | '1': HD1080
  _                            | _                                                           | '2': HD720
  _                            | _                                                           | '3': VGA
- frame_rate                   | Rate at which images are published                          | int
+ frame_rate (for HD2K)        | Rate at which images are published (fps)                    | int (15)
+ frame_rate (for HD1080)      | Rate at which images are published (fps)                    | int (15, 30)
+ frame_rate (for HD720)       | Rate at which images are published (fps)                    | int (15, 30, 60)
+ frame_rate (for VGA)         | Rate at which images are published (fps)                    | int (15, 30, 60, 100)
  left_frame_id                | Left Frame ID                                               | string
  right_frame_id               | Right Frame ID                                              | string
  load_zed_config              | Whether to use ZED calibration file                         | bool
  config_file_location         | The location of ZED calibration file                        | string
+ rectify                      | Whether rectify image                                       | bool
  show_image                   | Whether to use opencv show image                            | bool
  encoding                     | image encoding                                              | string
 
 # TODO:
 
-1. add the launch file for stereo_proc.
-2. add the nodelet functionality.
-
-# Transcend Robotics:
-Patented articulated traction control ARTI technology for stair climbing and obstacle traversal without complex software or controls
-http://transcendrobotics.com/
+- [ ] add the nodelet functionality.
 
 # Author:
-Di Zeng
+Zhang Handuo
