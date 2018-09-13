@@ -1,12 +1,11 @@
 <package>
     <name>zed_cpu_ros</name>
-    <version>0.0.1</version>
+    <version>0.0.2</version>
     <description>
       A simple zed camera driver which only use CPU and only publish left and right raw images.
     </description>
-    <author>Di Zeng</author>
-    <author>di.zeng@transcendrobotics.com</author>
-    <maintainer email="di.zeng@transcendrobotics.com">Di Zeng</maintainer>
+    <author>Zhang Handuo</author>
+    <maintainer email="hzhang032@e.ntu.edu.sg">Di Zeng</maintainer>
     <license>BSD</license>
     
     <buildtool_depend>catkin</buildtool_depend>

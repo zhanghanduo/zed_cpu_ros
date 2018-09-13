@@ -17,7 +17,7 @@
 #define HEIGHT_ID 4
 #define FPS_ID 5
 
-namespace arti
+namespace zed_ros
 {
 class StereoCamera
 {
@@ -44,7 +44,6 @@ public:
 
   ~StereoCamera()
   {
-    // std::cout << "Destroy the pointer" << std::endl;
     delete camera_;
   }
 
@@ -121,11 +120,12 @@ public:
       return false;
     }
   }
+  int width_;
+  int height_;
 
 private:
   cv::VideoCapture* camera_;
-  int width_;
-  int height_;
+
   double frame_rate_;
   bool cv_three_;
 };
@@ -155,7 +155,8 @@ public:
     private_nh.param("show_image", show_image_, false);
     private_nh.param("use_zed_config", use_zed_config_, true);
     private_nh.param("device_id", device_id_, 0);
-    private_nh.param("encoding", encoding_, std::string("brg8"));
+    private_nh.param("rectify_image", rectify_image_, true);
+
 
     correctFramerate(resolution_, frame_rate_);
 
@@ -163,10 +164,17 @@ public:
     StereoCamera zed(device_id_, resolution_, frame_rate_);
     ROS_INFO("Initialized the camera");
 
+    WIDTH=zed.width_;
+    HEIGHT=zed.height_;
+
+
     // setup publisher stuff
     image_transport::ImageTransport it(nh);
     image_transport::Publisher left_image_pub = it.advertise("left/image_raw", 1);
     image_transport::Publisher right_image_pub = it.advertise("right/image_raw", 1);
+
+    image_transport::Publisher rec_left_image_pub = it.advertise("left/image_rect", 1);
+    image_transport::Publisher rec_right_image_pub = it.advertise("right/image_rect", 1);
 
     ros::Publisher left_cam_info_pub = nh.advertise<sensor_msgs::CameraInfo>("left/camera_info", 1);
     ros::Publisher right_cam_info_pub = nh.advertise<sensor_msgs::CameraInfo>("right/camera_info", 1);
@@ -180,9 +188,11 @@ public:
       // get camera info from zed
       if (!config_file_location_.empty())
       {
+//        ROS_WARN("location: %s", config_file_location_.c_str());
         try
         {
           getZedCameraInfo(config_file_location_, resolution_, left_info, right_info);
+          getUndistortedMaps();
         }
         catch (std::runtime_error& e)
         {
@@ -199,15 +209,15 @@ public:
     else
     {
       ROS_INFO("Loading from ROS calibration files");
-      // here we just use camera infor manager to load info
+      // here we just use camera information manager to load info
       // get config from the left, right.yaml in config
       ros::NodeHandle left_nh("left");
       ros::NodeHandle right_nh("right");
-      camera_info_manager::CameraInfoManager left_info_manager(left_nh, "camera/left",
+      camera_info_manager::CameraInfoManager left_info_manager(left_nh, "zed/left",
                                                                "package://zed_cpu_ros/config/left.yaml");
       left_info = left_info_manager.getCameraInfo();
 
-      camera_info_manager::CameraInfoManager right_info_manager(right_nh, "camera/right",
+      camera_info_manager::CameraInfoManager right_info_manager(right_nh, "zed/right",
                                                                 "package://zed_cpu_ros/config/right.yaml");
       right_info = right_info_manager.getCameraInfo();
 
@@ -236,6 +246,20 @@ public:
         cv::imshow("left", left_image);
         cv::imshow("right", right_image);
       }
+
+        if(rectify_image_){
+            cv::Mat imLeftRec, imRightRec;
+            cv::remap(left_image, imLeftRec, M1l, M2l, cv::INTER_LINEAR);
+            cv::remap(right_image,imRightRec, M1r, M2r, cv::INTER_LINEAR);
+            //cv::imshow("left_rectified", imLeftRec);
+            if (rec_left_image_pub.getNumSubscribers() > 0) {
+                publishImage(imLeftRec, rec_left_image_pub, "rec_left_frame", now);
+            }
+            if (rec_right_image_pub.getNumSubscribers() > 0) {
+                publishImage(imRightRec, rec_right_image_pub, "rec_right_frame", now);
+            }
+        }
+
       if (left_image_pub.getNumSubscribers() > 0)
       {
         publishImage(left_image, left_image_pub, "left_frame", now);
@@ -265,7 +289,7 @@ public:
    * @param[in]  left_cam_info_msg   The left camera information message
    * @param[in]  right_cam_info_msg  The right camera information message
    */
-  void getZedCameraInfo(std::string config_file, int resolution, sensor_msgs::CameraInfo& left_info,
+  void getZedCameraInfo(const std::string &config_file, int resolution, sensor_msgs::CameraInfo& left_info,
                         sensor_msgs::CameraInfo& right_info)
   {
     boost::property_tree::ptree pt;
@@ -291,6 +315,7 @@ public:
     }
     // left value
     double l_cx = pt.get<double>(left_str + reso_str + ".cx");
+    ROS_WARN("l_cx: %f", l_cx);
     double l_cy = pt.get<double>(left_str + reso_str + ".cy");
     double l_fx = pt.get<double>(left_str + reso_str + ".fx");
     double l_fy = pt.get<double>(left_str + reso_str + ".fy");
@@ -306,20 +331,19 @@ public:
 
     // get baseline and convert mm to m
     boost::optional<double> baselineCheck;
-    double baseline = 0.0;
+    double baseline = 0.12;
     // some config files have "Baseline" instead of "BaseLine", check accordingly...
-    if (baselineCheck = pt.get_optional<double>("STEREO.BaseLine"))
-    {
-      baseline = pt.get<double>("STEREO.BaseLine") * 0.001;
-    }
-    else if (baselineCheck = pt.get_optional<double>("STEREO.Baseline"))
-    {
-      baseline = pt.get<double>("STEREO.Baseline") * 0.001;
-    }
-    else
-    {
-      throw std::runtime_error("baseline parameter not found");
-    }
+//    if (baselineCheck == pt.get_optional<double>("STEREO.BaseLine"))
+//    {
+//      baseline = pt.get<double>("STEREO.BaseLine") * 0.001;
+//      ROS_WARN("baseline: %f", baseline);
+//    }
+//    else if (baselineCheck == pt.get_optional<double>("STEREO.Baseline"))
+//    {
+//      baseline = pt.get<double>("STEREO.Baseline") * 0.001;
+//      ROS_WARN("baseline: %f", baseline);
+//    }
+
 
     // get Rx and Rz
     double rx = pt.get<double>("STEREO.RX_" + reso_str);
@@ -329,10 +353,13 @@ public:
     // assume zeros, maybe not right
     double p1 = 0, p2 = 0, k3 = 0;
 
+    left_info.height=HEIGHT;
+    left_info.width=WIDTH;
+    right_info.height=HEIGHT;
+    right_info.width=WIDTH;
+
     left_info.distortion_model = sensor_msgs::distortion_models::PLUMB_BOB;
     right_info.distortion_model = sensor_msgs::distortion_models::PLUMB_BOB;
-
-    // TODO(dizeng) verify loading default zed config is still working
 
     // distortion parameters
     // For "plumb_bob", the 5 parameters are: (k1, k2, t1, t2, k3).
@@ -342,6 +369,9 @@ public:
     left_info.D[2] = k3;
     left_info.D[3] = p1;
     left_info.D[4] = p2;
+
+    D_l=(cv::Mat1d(1,5) << l_k1, l_k2, k3, p1, p2);
+    D_r=(cv::Mat1d(1,5) << r_k1, r_k2, k3, p1, p2);
 
     right_info.D.resize(5);
     right_info.D[0] = r_k1;
@@ -368,6 +398,9 @@ public:
     right_info.K[5] = r_cy;
     right_info.K[8] = 1.0;
 
+    K_l = (cv::Mat1d(3, 3) << l_fx, 0, l_cx, 0, l_fy, l_cy, 0, 0, 1);
+    K_r = (cv::Mat1d(3, 3) << r_fx, 0, r_cx, 0, r_fy, r_cy, 0, 0, 1);
+
     // rectification matrix
     // Rl = R_rect, R_r = R * R_rect
     // since R is identity, Rl = Rr;
@@ -383,6 +416,9 @@ public:
       left_info.R[id] = *it;
       right_info.R[id] = *it;
     }
+
+    R_r = rmat;
+    R_l = rmat;
 
     // Projection/camera matrix
     //     [fx'  0  cx' Tx]
@@ -403,12 +439,29 @@ public:
     right_info.P[6] = r_cy;
     right_info.P[10] = 1.0;
 
+    P_l = (cv::Mat1d(3, 4) << l_fx, 0, l_cx, 0, 0, l_fy, l_cy, 0, 0, 0, 1, 0);
+    P_r = (cv::Mat1d(3, 4) << r_fx, 0, r_cx, -1 * l_fx * baseline, 0, r_fy, r_cy, 0, 0, 0, 1, 0);
+
     left_info.width = right_info.width = width_;
     left_info.height = right_info.height = height_;
 
     left_info.header.frame_id = left_frame_id_;
     right_info.header.frame_id = right_frame_id_;
   }
+
+    void getUndistortedMaps() {
+
+        if (K_l.empty() || K_r.empty() || P_l.empty() || P_r.empty() || R_l.empty() || R_r.empty() || D_l.empty() ||
+            D_r.empty() ||
+            WIDTH == 0 || HEIGHT == 0)
+        {
+            std::cerr << "ERROR: Calibration parameters to rectify stereo are missing!" << "/n";
+            return ;
+
+        }
+        cv::initUndistortRectifyMap(K_l,D_l,R_l,P_l.rowRange(0,3).colRange(0,3),cv::Size(WIDTH/2,HEIGHT),CV_32F,M1l,M2l);
+        cv::initUndistortRectifyMap(K_r,D_r,R_r,P_r.rowRange(0,3).colRange(0,3),cv::Size(WIDTH/2,HEIGHT),CV_32F,M1r,M2r);
+    }
 
   /**
    * @brief      { publish camera info }
@@ -436,13 +489,9 @@ public:
                     ros::Time t)
   {
     cv_bridge::CvImage cv_image;
-    // TODO(dizeng) maybe we can save a copy here?
     // or it seems like CV mat is passing by reference?
     cv_image.image = img;
-    // TODO(dizeng)
-    // by default the cv::mat from zed is bgr8, here just chaing encoding seems
-    // doesn't work, need to implement conversion function specificly
-    cv_image.encoding = encoding_;
+    cv_image.encoding = sensor_msgs::image_encodings::BGR8;
     cv_image.header.frame_id = img_frame_id;
     cv_image.header.stamp = t;
     img_pub.publish(cv_image.toImageMsg());
@@ -456,7 +505,7 @@ public:
   void correctFramerate(int resolution, double& frame_rate)
   {
     double max_frame_rate;
-    std::string reso_str = "";
+    std::string reso_str;
     switch (resolution)
     {
       case 0:
@@ -476,7 +525,7 @@ public:
         reso_str = "VGA";
         break;
       default:
-        ROS_FATAL("Unknow resolution passed");
+        ROS_FATAL("Unknown resolution passed");
         return;
     }
     if (frame_rate > max_frame_rate)
@@ -492,7 +541,11 @@ private:
   double width_, height_;
   std::string left_frame_id_, right_frame_id_;
   std::string config_file_location_;
-  std::string encoding_;
+  int WIDTH, HEIGHT;
+  cv::Mat K_l, K_r, P_l, P_r, R_l, R_r, D_l, D_r;
+    bool rectify_image_;
+    std::string undistort_config_file_location_;
+    cv::Mat M1l, M2l, M1r,M2r;
 };
 }
 
@@ -501,7 +554,7 @@ int main(int argc, char** argv)
   try
   {
     ros::init(argc, argv, "zed_camera");
-    arti::ZedCameraROS zed_ros;
+    zed_ros::ZedCameraROS zed_ros;
     return EXIT_SUCCESS;
   }
   catch (std::runtime_error& e)
